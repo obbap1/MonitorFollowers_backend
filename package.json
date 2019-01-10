@@ -4,12 +4,15 @@
   "description": "",
   "author": "",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index"
   },
   "dependencies": {
     "apollo-server": "^2.3.1",
     "graphql": "^14.0.2",
     "imap": "^0.8.19",
+    "imap-promise": "^1.0.2",
+    "mailparser": "^2.4.3",
     "vuetify": "^1.3.0"
   },
   "devDependencies": {

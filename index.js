@@ -3,82 +3,110 @@
 const {ApolloServer, gql} = require('apollo-server')
 const Imap = require('imap'),
 	inspect = require('util').inspect
+const simpleParser = require('mailparser').simpleParser
+
+let graphPoints = []
 
 //Function to connect to IMAP
-function connectToImap(user,password) {
-	const imap = new Imap({
-		user: user,
-		password: password,
-		host: 'imap.gmail.com',
-		port: 993,
-		tls: true
-	})
+async function connectToImap(user,password) {
+
+	let resolveGraph = new Promise((resolve,reject)=>{
+		const imap = new Imap({
+			user: user,
+			password: password,
+			host: 'imap.gmail.com',
+			port: 993,
+			tls: true
+		})
   
-	function openInbox(cb) {
-		imap.openBox('INBOX', true, cb)
-	}
-  
-	imap.once('ready', function() {
-		openInbox(function(err, box) {
-			if (err) throw err
-			var f = imap.seq.fetch('1:6', {
-				bodies: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
-				struct: true
-			})
-			f.on('message', function(msg, seqno) {
-				console.log('Message #%d', seqno)
-				var prefix = '(#' + seqno + ') '
-				let getMessages = new Promise((resolve,reject)=>{
-					msg.on('body', function(stream, info) {
-						var buffer = ''
-						stream.on('data', function(chunk) {
-							buffer += chunk.toString('utf8')
+		function openInbox(cb) {
+			imap.openBox('INBOX', true, cb)
+		}
+	
+		imap.once('ready', function() {
+			openInbox(function(err, box) {
+				if (err) throw new Error('Invalid Login. Please Try again.')
+				
+				imap.search([['FROM',
+					'noreply@medium.com',
+				]], (err,result) =>{
+					var f = imap.fetch(result, {
+						bodies: ['HEADER.FIELDS (FROM SUBJECT DATE)'],
+						struct: true
+					})
+			
+					f.on('message', function(msg, seqno) {
+						msg.on('body', function(stream, info) {
+							let buffer = ''
+						
+							stream.on('data', function(chunk) {
+								buffer += chunk.toString('utf8')
+								simpleParser(buffer)
+									.then(parsed => {
+										if(parsed.subject && parsed.subject.includes('started following you')){
+
+											let numberOfFollowers = parsed.subject.split(/,|and/).filter(v=>v!=' ').length
+
+											if(/\d others/.test(parsed.subject)) {
+												let otherNumber = /\d/.exec(parsed.subject)
+												numberOfFollowers += (Number(otherNumber[0]) - 1)
+											}
+											
+											let dataPoint = {
+												numberOfFollowers: numberOfFollowers,
+												date: parsed.date
+											}
+											graphPoints.push(dataPoint)
+										}
+									})
+									.catch(err =>{throw err})	
+							})
 						})
-						stream.once('end', function() {
-							console.log(prefix + 'Parsed header: %s', inspect(Imap.parseHeader(buffer)))
-						})
-						resolve(buffer)
+					
+					})
+					f.once('error', function(err) {
+						reject(new Error('Fetching results failed'))
+					})
+					f.once('end', function() {
+						console.log('Done fetching all messages!')
+						imap.end()
+						//console.log('graph---points',graphPoints)
+						resolve(graphPoints)
 					})
 				})
-        
-				getMessages.then(response =>{
-					console.log(response)
-				})
-				
-				msg.once('attributes', function(attrs) {
-					console.log(prefix + 'Attributes: %s', inspect(attrs, false, 8))
-				})
-				msg.once('end', function() {
-					console.log(prefix + 'Finished')
-				})
-			})
-			f.once('error', function(err) {
-				console.log('Fetch error: ' + err)
-			})
-			f.once('end', function() {
-				console.log('Done fetching all messages!')
-				imap.end()
 			})
 		})
-	})
-	imap.once('error', function(err) {
-		console.log(err)
-	})
+	
+		imap.once('error', function(err) {
+			reject(new Error('Failed Imap connection'))
+		})
   
-	imap.once('end', function() {
-		console.log('Connection ended')
-	})
+		imap.once('end', function() {
+			console.log('Connection ended')
+		})
   
-	imap.connect()
+		imap.connect()
+	})
+
+	return await resolveGraph
+	
 }
 
 const typeDefs = gql`
+
+	scalar Date
+
     # Make a type user
     type User {
         email: String!
         password: String!
-        data: String!
-    }
+        data: [Graph!]
+	}
+	
+	type Graph {
+		numberOfFollowers: Int!
+		date: Date!
+	}
 
     type Query {
         users: [User]
@@ -91,15 +119,21 @@ const typeDefs = gql`
 const resolvers = {
 	Mutation:{
 		imapMutation: (parent, args) => {
+			
+			graphPoints = []
 
-			connectToImap(args.email,args.password)
-
-			const user = {
-				email: args.email,
-				password: args.password,
-				data: 'Successful 😺'
-			}
-			return user
+			return connectToImap(args.email,args.password)
+				.then(response =>{
+					const user = {
+						email: args.email,
+						data: response
+					}
+					console.log(user)
+					return user
+				})
+				.catch(error =>{
+					return new Error('Invalid Credentials. Please Try again.')
+				})
 		}
 	}
 }
