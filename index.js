@@ -1,15 +1,14 @@
 //Apollo server
 
 const {ApolloServer, gql} = require('apollo-server')
-const Imap = require('imap'),
-	inspect = require('util').inspect
+const Imap = require('imap')
 const simpleParser = require('mailparser').simpleParser
 
 let graphPoints = []
 
 //Function to connect to IMAP
 async function connectToImap(user,password) {
-
+	
 	let resolveGraph = new Promise((resolve,reject)=>{
 		const imap = new Imap({
 			user: user,
@@ -29,8 +28,8 @@ async function connectToImap(user,password) {
 				
 				imap.search([['FROM',
 					'noreply@medium.com',
-				]], (err,result) =>{
-					var f = imap.fetch(result, {
+				]], async (err,result) =>{
+					var f = await imap.fetch(result, {
 						bodies: ['HEADER.FIELDS (FROM SUBJECT DATE)'],
 						struct: true
 					})
@@ -69,9 +68,7 @@ async function connectToImap(user,password) {
 					})
 					f.once('end', function() {
 						console.log('Done fetching all messages!')
-						imap.end()
-						//console.log('graph---points',graphPoints)
-						resolve(graphPoints)
+						imap.end()	
 					})
 				})
 			})
@@ -83,6 +80,7 @@ async function connectToImap(user,password) {
   
 		imap.once('end', function() {
 			console.log('Connection ended')
+			resolve(graphPoints)
 		})
   
 		imap.connect()
